@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { format, formatDistanceToNow } from 'date-fns'
 import {
   Phone, Wrench, MessageCircle, AlertTriangle,
@@ -16,8 +16,8 @@ const EVENT_META = {
   call_answered:             { icon: Phone,         color: GREEN,     label: 'After-hours call answered' },
   job_captured:              { icon: Wrench,        color: GREEN,     label: 'Job captured' },
   emergency_escalated:       { icon: AlertTriangle, color: '#b03a2e', label: 'EMERGENCY — escalated to owner' },
-  whatsapp_message_received: { icon: MessageCircle, color: '#1a3d6b', label: 'WhatsApp message received' },
-  whatsapp_missed_call:      { icon: Phone,         color: GOLD,      label: 'WhatsApp call missed' },
+  whatsapp_missed_call:      { icon: Phone,         color: GOLD,      label: 'WhatsApp call missed — bot picked up' },
+  whatsapp_lead_engaged:     { icon: MessageCircle, color: GREEN,     label: 'AI replied to lead' },
   review_requested:          { icon: Star,          color: GOLD,      label: 'Review request sent' },
   review_received:           { icon: Star,          color: GREEN,     label: 'Google review received' },
   campaign_sent:             { icon: Megaphone,     color: '#1a3d6b', label: 'Campaign message sent' },
@@ -120,7 +120,7 @@ export default function Tracker() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginTop: 20 }}>
-          {['overview', 'jobs', 'timeline'].map(t => (
+          {['overview', 'jobs', 'timeline', 'campaigns'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -162,7 +162,7 @@ export default function Tracker() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 20 }}>
                   <StatCard icon={Phone}         value={stats.callsAnswered}        label="Calls Answered"       sub="After hours & overflow" />
                   <StatCard icon={Wrench}        value={stats.jobsCaptured}         label="Jobs Captured"        sub="Would have been missed" />
-                  <StatCard icon={MessageCircle} value={stats.whatsappReceived}     label="WhatsApp Handled"     sub="Messages processed" />
+                  <StatCard icon={MessageCircle} value={stats.whatsappReceived}     label="WhatsApp Handled"     sub={`${stats.whatsappMissedCalls} missed · ${stats.whatsappEngaged} replies`} />
                   <StatCard icon={AlertTriangle} value={stats.emergencies}          label="Emergencies"          sub="Escalated instantly" />
                   <StatCard icon={Megaphone}     value={stats.campaignsSent}        label="Campaigns Sent"       sub="To existing clients" />
                   <StatCard icon={Star}          value={stats.reviewsRequested}     label="Reviews Requested"    sub={`${stats.reviewsReceived} received`} />
@@ -277,6 +277,11 @@ export default function Tracker() {
               </div>
             )}
 
+            {/* ── CAMPAIGNS TAB ── */}
+            {tab === 'campaigns' && (
+              <CampaignTab tenant={tenant} />
+            )}
+
             {/* ── TIMELINE TAB ── */}
             {tab === 'timeline' && (
               <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 18 }}>
@@ -370,6 +375,323 @@ function FeedbackCard({ label, value, color, bg }) {
     <div style={{ background: bg, borderRadius: 5, padding: '12px 10px', textAlign: 'center' }}>
       <div style={{ fontSize: 26, fontWeight: 800, color }}>{value}</div>
       <div style={{ fontSize: 10, color: SOFT, marginTop: 3, lineHeight: 1.4 }}>{label}</div>
+    </div>
+  )
+}
+
+// ── Campaign Tab ──────────────────────────────────────────────────────────────
+
+const WEBHOOK_URL  = import.meta.env.VITE_WEBHOOK_URL  || ''
+const ADMIN_KEY    = import.meta.env.VITE_ADMIN_KEY    || ''
+const SC_API_KEY   = 'ffa063f0-b386-400b-b0ba-4d52d7b8386a'
+
+const TEMPLATES = [
+  {
+    label: 'Winter geyser check',
+    text: "Hi {name}, it's Chapman Plumbing here. Winter is here and now is the perfect time for a quick geyser health check before the cold hits hard. Reply YES and we'll book you in for a free inspection. 🔧",
+  },
+  {
+    label: 'Maintenance reminder',
+    text: "Hi {name}, Chapman Plumbing here. Don't wait for a burst pipe — a quick annual plumbing check can save you thousands. Reply YES to book your maintenance visit at a time that suits you.",
+  },
+  {
+    label: 'Re-engagement',
+    text: "Hi {name}, it's been a while! Chapman Plumbing here. If you need any plumbing help — big or small — just reply and we'll sort you out quickly. We're always just a message away. 👋",
+  },
+]
+
+function CampaignTab({ tenant }) {
+  const [message, setMessage]         = useState('')
+  const [searchPhrase, setSearch]     = useState('')
+  const [maxSend, setMaxSend]         = useState(50)
+  const [dryRun, setDryRun]           = useState(true)
+  const [status, setStatus]           = useState(null)   // null | 'previewing' | 'sending' | 'done' | 'error'
+  const [result, setResult]           = useState(null)
+  const [confirm, setConfirm]         = useState(false)
+  const [customerCount, setCount]     = useState(null)
+  const [counting, setCounting]       = useState(false)
+  const abortRef                      = useRef(null)
+
+  const charCount = message.length
+  const hasName   = message.includes('{name}')
+
+  async function fetchCount() {
+    setCounting(true)
+    setCount(null)
+    try {
+      const r = await fetch(`${WEBHOOK_URL}/campaigns/servcraft?key=${ADMIN_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          servcraft_api_key: SC_API_KEY,
+          message: message || 'preview',
+          search_phrase: searchPhrase,
+          max_send: 9999,
+          dry_run: true,
+        }),
+      })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      // The count comes from ServCraft totalResults — we fetch page 0 to get it
+      const countResp = await fetch(
+        'https://previewapi.servcraft.co.za/api/v1/Customer/GetCustomers',
+        {
+          method: 'POST',
+          headers: { 'ApiKey': SC_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ searchPhrase, pageIndex: 0, pageSize: 1 }),
+        }
+      )
+      const cd = await countResp.json()
+      setCount(cd.totalResults ?? '?')
+    } catch (e) {
+      setCount('Error — check config')
+    } finally {
+      setCounting(false)
+    }
+  }
+
+  async function sendCampaign(isDry) {
+    setStatus(isDry ? 'previewing' : 'sending')
+    setResult(null)
+    setConfirm(false)
+    try {
+      const r = await fetch(`${WEBHOOK_URL}/campaigns/servcraft?key=${ADMIN_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          servcraft_api_key: SC_API_KEY,
+          message,
+          search_phrase: searchPhrase,
+          max_send: maxSend,
+          dry_run: isDry,
+        }),
+      })
+      if (!r.ok) throw new Error(`Server returned ${r.status}`)
+      const data = await r.json()
+      setResult(data)
+      setStatus('done')
+    } catch (e) {
+      setResult({ error: e.message })
+      setStatus('error')
+    }
+  }
+
+  const busy = status === 'previewing' || status === 'sending'
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, alignItems: 'start' }}>
+
+      {/* ── Left: composer ── */}
+      <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 16 }}>
+          COMPOSE MESSAGE
+        </div>
+
+        {/* Templates */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: SOFT, marginBottom: 6 }}>Quick templates</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {TEMPLATES.map(t => (
+              <button
+                key={t.label}
+                onClick={() => setMessage(t.text)}
+                style={{
+                  fontSize: 11, padding: '4px 10px', border: `1px solid ${GREEN}`,
+                  borderRadius: 20, background: '#fff', color: GREEN, cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Message textarea */}
+        <textarea
+          value={message}
+          onChange={e => setMessage(e.target.value)}
+          placeholder="Type your message here… Use {name} to personalise with the customer's first name."
+          rows={5}
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+            border: '1.5px solid #d8d3c8', borderRadius: 6, fontSize: 13,
+            fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5,
+            outline: 'none',
+          }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+          <span style={{ fontSize: 11, color: hasName ? GREEN : SOFT }}>
+            {hasName ? '✓ Personalised with {name}' : 'Tip: add {name} to personalise'}
+          </span>
+          <span style={{ fontSize: 11, color: charCount > 300 ? '#b03a2e' : SOFT }}>{charCount} chars</span>
+        </div>
+
+        {/* Filters */}
+        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: SOFT, marginBottom: 4 }}>Filter by name / suburb (optional)</div>
+            <input
+              value={searchPhrase}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="e.g. Ballito, Simbithi — leave blank for all"
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit',
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: SOFT, marginBottom: 4 }}>Max recipients</div>
+            <input
+              type="number"
+              value={maxSend}
+              onChange={e => setMaxSend(Math.max(1, Number(e.target.value)))}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button
+            onClick={fetchCount}
+            disabled={busy || counting || !message}
+            style={{
+              padding: '9px 16px', fontSize: 12, fontWeight: 600, border: `1.5px solid ${GREEN}`,
+              borderRadius: 5, background: '#fff', color: GREEN, cursor: 'pointer',
+            }}
+          >
+            {counting ? 'Counting…' : 'Preview recipients'}
+          </button>
+
+          <button
+            onClick={() => sendCampaign(true)}
+            disabled={busy || !message}
+            style={{
+              padding: '9px 16px', fontSize: 12, fontWeight: 600,
+              border: `1.5px solid #1a3d6b`, borderRadius: 5,
+              background: '#fff', color: '#1a3d6b', cursor: 'pointer',
+            }}
+          >
+            {status === 'previewing' ? 'Running dry run…' : 'Dry run'}
+          </button>
+
+          {!confirm ? (
+            <button
+              onClick={() => setConfirm(true)}
+              disabled={busy || !message}
+              style={{
+                padding: '9px 20px', fontSize: 12, fontWeight: 700,
+                border: 'none', borderRadius: 5,
+                background: message ? GREEN : '#ccc',
+                color: '#fff', cursor: message ? 'pointer' : 'default',
+              }}
+            >
+              {status === 'sending' ? 'Sending…' : `Send to ${maxSend} customers`}
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#b03a2e', fontWeight: 600 }}>Send real WhatsApps?</span>
+              <button
+                onClick={() => sendCampaign(false)}
+                style={{ padding: '7px 14px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 5, background: '#b03a2e', color: '#fff', cursor: 'pointer' }}
+              >
+                Yes, send
+              </button>
+              <button
+                onClick={() => setConfirm(false)}
+                style={{ padding: '7px 12px', fontSize: 12, border: '1px solid #d8d3c8', borderRadius: 5, background: '#fff', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Result */}
+        {result && (
+          <div style={{
+            marginTop: 14, padding: 12, borderRadius: 5,
+            background: status === 'error' ? '#fdf0f0' : '#e6f4ee',
+            border: `1px solid ${status === 'error' ? '#f5b1ab' : '#a8d5bc'}`,
+          }}>
+            {status === 'error' ? (
+              <span style={{ fontSize: 12, color: '#7f1d1d' }}>Error: {result.error}</span>
+            ) : (
+              <span style={{ fontSize: 12, color: '#14532d', fontWeight: 600 }}>
+                {result.dry_run
+                  ? `Dry run queued — check Railway logs to see who would receive it.`
+                  : `Campaign sent to up to ${result.max_send} customers. Check timeline for campaign_sent events.`
+                }
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: info panel ── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        {/* Recipient count card */}
+        <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 10 }}>
+            RECIPIENTS
+          </div>
+          <div style={{ fontSize: 36, fontWeight: 900, color: INK, lineHeight: 1 }}>
+            {counting ? '…' : customerCount !== null ? customerCount.toLocaleString() : '—'}
+          </div>
+          <div style={{ fontSize: 11, color: SOFT, marginTop: 4 }}>
+            {customerCount !== null
+              ? `ServCraft customers matching filter${searchPhrase ? ` "${searchPhrase}"` : ' (all)'}`
+              : 'Click "Preview recipients" to count'}
+          </div>
+          {customerCount !== null && maxSend < customerCount && (
+            <div style={{ marginTop: 8, fontSize: 11, color: GOLD, fontWeight: 600 }}>
+              Capped at {maxSend} — increase max recipients to reach all
+            </div>
+          )}
+        </div>
+
+        {/* How it works */}
+        <div style={{ background: INK, borderRadius: 6, padding: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#7edba8', marginBottom: 12 }}>
+            HOW IT WORKS
+          </div>
+          {[
+            ['1', 'Your message is sent via WhatsApp to each customer\'s mobile number from Chapman\'s WhatsApp line'],
+            ['2', '{name} is replaced with their actual first name automatically'],
+            ['3', 'Use the filter to target a suburb or specific customers'],
+            ['4', 'Always do a dry run first — it logs without sending'],
+            ['5', 'Campaigns are capped at 10 messages per 10 seconds to stay within limits'],
+          ].map(([n, text]) => (
+            <div key={n} style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: '50%', background: '#1a6b4a',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 800, color: '#fff', flexShrink: 0,
+              }}>{n}</div>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>{text}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Not configured warning */}
+        {!WEBHOOK_URL && (
+          <div style={{ background: '#fdf3e7', border: '1px solid #f5d499', borderRadius: 6, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600 }}>VITE_WEBHOOK_URL not set</div>
+            <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>Add it to your .env and Vercel environment variables.</div>
+          </div>
+        )}
+        {!ADMIN_KEY && (
+          <div style={{ background: '#fdf3e7', border: '1px solid #f5d499', borderRadius: 6, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600 }}>VITE_ADMIN_KEY not set</div>
+            <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>Add your Railway ADMIN_KEY to .env to enable campaigns.</div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
