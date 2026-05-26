@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
 import { MapPin, Send, Wrench, Plus, X, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
-import { useJobCards, useCreateJobCard, useUpdateJobCard } from '../hooks/useJobCards'
+import { useJobCards, useCreateJobCard, useUpdateJobCard, useTeam } from '../hooks/useJobCards'
 
 const WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
 const ADMIN_KEY   = import.meta.env.VITE_ADMIN_KEY   || ''
 
-async function dispatchJobCard(card) {
+async function dispatchJobCard(card, phones = []) {
   const cardUrl = `${window.location.origin}/job/${card.id}`
   const r = await fetch(`${WEBHOOK_URL}/job-cards/dispatch?key=${ADMIN_KEY}`, {
     method: 'POST',
@@ -20,6 +20,7 @@ async function dispatchJobCard(card) {
       priority:      card.priority,
       notes:         card.notes,
       card_url:      cardUrl,
+      phones:        phones.length ? phones : undefined,
     }),
   })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -57,12 +58,16 @@ export default function JobCards({ tenant }) {
   const [search, setSearch]         = useState('')
   const [form, setForm]             = useState(EMPTY_FORM)
   const [editId, setEditId]         = useState(null)
-  const [dispatching, setDispatching] = useState(null)   // card id being dispatched
-  const [dispatchResult, setDispatchResult] = useState({}) // { [cardId]: 'sent' | 'error' }
+  const [dispatching, setDispatching]   = useState(null)
+  const [dispatchResult, setDispatchResult] = useState({})
+  const [selectedPlumbers, setSelectedPlumbers] = useState({}) // { [cardId]: Set of phones }
 
   const { data: cards = [], isLoading, error } = useJobCards(tenant)
+  const { data: teamData } = useTeam(tenant)
   const createCard  = useCreateJobCard()
   const updateCard  = useUpdateJobCard()
+  const team = teamData?.team || []
+  const oncall = teamData?.oncall || []
 
   const filtered = cards.filter(c => {
     if (filter !== 'all' && c.status !== filter) return false
@@ -117,14 +122,24 @@ export default function JobCards({ tenant }) {
   async function handleDispatch(card) {
     setDispatching(card.id)
     setDispatchResult(r => ({ ...r, [card.id]: null }))
+    const selected = selectedPlumbers[card.id]
+    const phones = selected && selected.size > 0 ? Array.from(selected) : []
     try {
-      const res = await dispatchJobCard(card)
+      const res = await dispatchJobCard(card, phones)
       setDispatchResult(r => ({ ...r, [card.id]: res.error ? 'error' : 'sent' }))
     } catch {
       setDispatchResult(r => ({ ...r, [card.id]: 'error' }))
     } finally {
       setDispatching(null)
     }
+  }
+
+  function togglePlumber(cardId, phone) {
+    setSelectedPlumbers(prev => {
+      const cur = new Set(prev[cardId] || [])
+      cur.has(phone) ? cur.delete(phone) : cur.add(phone)
+      return { ...prev, [cardId]: cur }
+    })
   }
 
   const saving = createCard.isPending || updateCard.isPending
@@ -427,40 +442,81 @@ export default function JobCards({ tenant }) {
                         </button>
                       ))
                     }
-                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {dispatchResult[card.id] === 'sent' && (
-                        <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>✓ Sent to plumber</span>
-                      )}
-                      {dispatchResult[card.id] === 'error' && (
-                        <span style={{ fontSize: 11, color: RED, fontWeight: 600 }}>Failed — check config</span>
-                      )}
+                    <button
+                      onClick={() => openEdit(card)}
+                      style={{
+                        fontSize: 11, fontWeight: 600, padding: '4px 12px',
+                        border: '1px solid #d8d3c8', borderRadius: 3,
+                        background: '#fff', color: SOFT, cursor: 'pointer',
+                        marginLeft: 'auto',
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </div>
+
+                  {/* Plumber picker + dispatch */}
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0ede7' }}>
+                    {team.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: SOFT, marginBottom: 6 }}>
+                          SEND TO
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {team.map(m => {
+                            const sel = (selectedPlumbers[card.id] || new Set()).has(m.phone)
+                            const isOnCall = oncall.includes(m.name)
+                            return (
+                              <button
+                                key={m.phone}
+                                onClick={() => togglePlumber(card.id, m.phone)}
+                                style={{
+                                  fontSize: 11, fontWeight: 600, padding: '5px 12px',
+                                  borderRadius: 20, cursor: 'pointer',
+                                  border: sel ? 'none' : `1.5px solid ${isOnCall ? GREEN : '#d8d3c8'}`,
+                                  background: sel ? GREEN : (isOnCall ? '#e6f4ee' : '#fff'),
+                                  color: sel ? '#fff' : (isOnCall ? GREEN : SOFT),
+                                }}
+                              >
+                                {m.name}{isOnCall ? ' ★' : ''}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <div style={{ fontSize: 10, color: SOFT, marginTop: 4 }}>
+                          ★ on call · select to override, or leave all unselected to send to on-call only
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <button
                         onClick={() => handleDispatch(card)}
                         disabled={dispatching === card.id}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 5,
-                          fontSize: 11, fontWeight: 700, padding: '5px 12px',
-                          border: 'none', borderRadius: 3,
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          fontSize: 12, fontWeight: 700, padding: '8px 16px',
+                          border: 'none', borderRadius: 5,
                           background: GREEN, color: '#fff', cursor: 'pointer',
                         }}
                       >
                         {dispatching === card.id
-                          ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
-                          : <Send size={11} />
+                          ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                          : <Send size={13} />
                         }
                         Send to Plumber
                       </button>
-                      <button
-                        onClick={() => openEdit(card)}
-                        style={{
-                          fontSize: 11, fontWeight: 600, padding: '4px 12px',
-                          border: '1px solid #d8d3c8', borderRadius: 3,
-                          background: '#fff', color: SOFT, cursor: 'pointer',
-                        }}
-                      >
-                        Edit
-                      </button>
+                      {dispatchResult[card.id] === 'sent' && (
+                        <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>✓ Sent</span>
+                      )}
+                      {dispatchResult[card.id] === 'error' && (
+                        <span style={{ fontSize: 11, color: RED, fontWeight: 600 }}>Failed — check config</span>
+                      )}
                     </div>
+                  </div>
+
+                  {/* close the flex row that was left open */}
+                  <div style={{ display: 'none' }}>
                   </div>
                 </div>
               )}
