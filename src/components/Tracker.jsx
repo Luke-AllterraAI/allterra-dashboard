@@ -1,8 +1,8 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { format, formatDistanceToNow } from 'date-fns'
 import {
   Phone, Wrench, MessageCircle, AlertTriangle,
-  Star, Megaphone, Loader2, ChevronDown, Download,
+  Star, Megaphone, Loader2, ChevronDown, Download, Share2,
 } from 'lucide-react'
 import { useTenants, useTrackerStats } from '../hooks/useTracker'
 
@@ -29,6 +29,15 @@ export default function Tracker() {
   const [jobValue, setJobValue] = useState(3000)
   const [tab, setTab] = useState('overview')
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
+
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
 
   const { data: tenants = [], isLoading: tenantsLoading } = useTenants()
   const { data, isLoading, error } = useTrackerStats(tenant, days)
@@ -109,12 +118,36 @@ export default function Tracker() {
             </div>
           </div>
 
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: '#aecfbe', marginBottom: 4 }}>TOTAL VALUE GENERATED</div>
-            <div style={{ fontSize: 32, fontWeight: 800, color: '#7edba8' }}>R{totalValue.toLocaleString()}</div>
-            <div style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>
-              {roi}× return on R{MONTHLY_COST.toLocaleString()}/mo
+          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#aecfbe', marginBottom: 4 }}>TOTAL VALUE GENERATED</div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: '#7edba8' }}>R{totalValue.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>
+                {roi}× return on R{MONTHLY_COST.toLocaleString()}/mo
+              </div>
             </div>
+
+            {!isStandalone && (installPrompt || isIOS) && (
+              <button
+                onClick={() => {
+                  if (installPrompt) {
+                    installPrompt.prompt()
+                    installPrompt.userChoice.then(() => setInstallPrompt(null))
+                  }
+                }}
+                title={isIOS ? 'Tap the Share button then "Add to Home Screen"' : 'Install the app'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '7px 14px', fontSize: 11, fontWeight: 700,
+                  border: '1.5px solid #7edba8', borderRadius: 20,
+                  background: 'transparent', color: '#7edba8', cursor: 'pointer',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                <Share2 size={13} />
+                {isIOS ? 'Add to Home Screen' : 'Install App'}
+              </button>
+            )}
           </div>
         </div>
 
