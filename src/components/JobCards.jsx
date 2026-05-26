@@ -1,7 +1,28 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { MapPin, Phone, Wrench, Plus, X, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { MapPin, Send, Wrench, Plus, X, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import { useJobCards, useCreateJobCard, useUpdateJobCard } from '../hooks/useJobCards'
+
+const WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
+const ADMIN_KEY   = import.meta.env.VITE_ADMIN_KEY   || ''
+
+async function dispatchJobCard(card) {
+  const r = await fetch(`${WEBHOOK_URL}/job-cards/dispatch?key=${ADMIN_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant:        card.tenant,
+      address:       card.address,
+      contact_name:  card.contact_name,
+      contact_phone: card.contact_phone,
+      description:   card.description,
+      priority:      card.priority,
+      notes:         card.notes,
+    }),
+  })
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
 
 const INK   = '#0f1a14'
 const GREEN = '#1a6b4a'
@@ -28,12 +49,14 @@ const EMPTY_FORM = {
 }
 
 export default function JobCards({ tenant }) {
-  const [showForm, setShowForm]   = useState(false)
-  const [expanded, setExpanded]   = useState(null)
-  const [filter, setFilter]       = useState('all')
-  const [search, setSearch]       = useState('')
-  const [form, setForm]           = useState(EMPTY_FORM)
-  const [editId, setEditId]       = useState(null)
+  const [showForm, setShowForm]     = useState(false)
+  const [expanded, setExpanded]     = useState(null)
+  const [filter, setFilter]         = useState('all')
+  const [search, setSearch]         = useState('')
+  const [form, setForm]             = useState(EMPTY_FORM)
+  const [editId, setEditId]         = useState(null)
+  const [dispatching, setDispatching] = useState(null)   // card id being dispatched
+  const [dispatchResult, setDispatchResult] = useState({}) // { [cardId]: 'sent' | 'error' }
 
   const { data: cards = [], isLoading, error } = useJobCards(tenant)
   const createCard  = useCreateJobCard()
@@ -87,6 +110,19 @@ export default function JobCards({ tenant }) {
 
   async function changeStatus(card, status) {
     await updateCard.mutateAsync({ id: card.id, tenant: card.tenant, status })
+  }
+
+  async function handleDispatch(card) {
+    setDispatching(card.id)
+    setDispatchResult(r => ({ ...r, [card.id]: null }))
+    try {
+      const res = await dispatchJobCard(card)
+      setDispatchResult(r => ({ ...r, [card.id]: res.error ? 'error' : 'sent' }))
+    } catch {
+      setDispatchResult(r => ({ ...r, [card.id]: 'error' }))
+    } finally {
+      setDispatching(null)
+    }
   }
 
   const saving = createCard.isPending || updateCard.isPending
@@ -389,16 +425,40 @@ export default function JobCards({ tenant }) {
                         </button>
                       ))
                     }
-                    <button
-                      onClick={() => openEdit(card)}
-                      style={{
-                        marginLeft: 'auto', fontSize: 11, fontWeight: 600, padding: '4px 12px',
-                        border: '1px solid #d8d3c8', borderRadius: 3,
-                        background: '#fff', color: SOFT, cursor: 'pointer',
-                      }}
-                    >
-                      Edit
-                    </button>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {dispatchResult[card.id] === 'sent' && (
+                        <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>✓ Sent to plumber</span>
+                      )}
+                      {dispatchResult[card.id] === 'error' && (
+                        <span style={{ fontSize: 11, color: RED, fontWeight: 600 }}>Failed — check config</span>
+                      )}
+                      <button
+                        onClick={() => handleDispatch(card)}
+                        disabled={dispatching === card.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          fontSize: 11, fontWeight: 700, padding: '5px 12px',
+                          border: 'none', borderRadius: 3,
+                          background: GREEN, color: '#fff', cursor: 'pointer',
+                        }}
+                      >
+                        {dispatching === card.id
+                          ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+                          : <Send size={11} />
+                        }
+                        Send to Plumber
+                      </button>
+                      <button
+                        onClick={() => openEdit(card)}
+                        style={{
+                          fontSize: 11, fontWeight: 600, padding: '4px 12px',
+                          border: '1px solid #d8d3c8', borderRadius: 3,
+                          background: '#fff', color: SOFT, cursor: 'pointer',
+                        }}
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

@@ -581,7 +581,7 @@ function CampaignTab({ tenant }) {
         <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
           <button
             onClick={fetchCount}
-            disabled={busy || counting || !message}
+            disabled={busy || counting}
             style={{
               padding: '9px 16px', fontSize: 12, fontWeight: 600, border: `1.5px solid ${GREEN}`,
               borderRadius: 5, background: '#fff', color: GREEN, cursor: 'pointer',
