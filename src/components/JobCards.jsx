@@ -7,6 +7,7 @@ const WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
 const ADMIN_KEY   = import.meta.env.VITE_ADMIN_KEY   || ''
 
 async function dispatchJobCard(card) {
+  const cardUrl = `${window.location.origin}/job/${card.id}`
   const r = await fetch(`${WEBHOOK_URL}/job-cards/dispatch?key=${ADMIN_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -18,6 +19,7 @@ async function dispatchJobCard(card) {
       description:   card.description,
       priority:      card.priority,
       notes:         card.notes,
+      card_url:      cardUrl,
     }),
   })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
