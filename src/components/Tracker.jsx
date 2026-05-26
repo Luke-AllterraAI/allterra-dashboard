@@ -5,6 +5,7 @@ import {
   Star, Megaphone, Loader2, ChevronDown, Download, Share2,
 } from 'lucide-react'
 import { useTenants, useTrackerStats } from '../hooks/useTracker'
+import JobCards from './JobCards'
 
 const INK = '#0f1a14'
 const GREEN = '#1a6b4a'
@@ -153,7 +154,7 @@ export default function Tracker() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginTop: 20 }}>
-          {['overview', 'jobs', 'timeline', 'campaigns'].map(t => (
+          {['overview', 'job cards', 'jobs', 'timeline', 'campaigns'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -259,6 +260,9 @@ export default function Tracker() {
                 </div>
               </>
             )}
+
+            {/* ── JOB CARDS TAB ── */}
+            {tab === 'job cards' && <JobCards tenant={tenant} />}
 
             {/* ── JOBS TAB ── */}
             {tab === 'jobs' && (
