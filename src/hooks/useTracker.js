@@ -69,8 +69,10 @@ export function useTrackerStats(tenant, days = 30) {
           callsAnswered: counts.call_answered || 0,
           jobsCaptured: counts.job_captured || 0,
           emergencies: counts.emergency_escalated || 0,
-          whatsappReceived: counts.whatsapp_message_received || 0,
+          // WhatsApp Handled = missed calls picked up + bot replies in active conversations
+          whatsappReceived: (counts.whatsapp_missed_call || 0) + (counts.whatsapp_lead_engaged || 0),
           whatsappMissedCalls: counts.whatsapp_missed_call || 0,
+          whatsappEngaged: counts.whatsapp_lead_engaged || 0,
           reviewsRequested: counts.review_requested || 0,
           reviewsReceived: counts.review_received || 0,
           campaignsSent: counts.campaign_sent || 0,

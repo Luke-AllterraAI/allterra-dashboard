@@ -419,29 +419,15 @@ function CampaignTab({ tenant }) {
     setCounting(true)
     setCount(null)
     try {
-      const r = await fetch(`${WEBHOOK_URL}/campaigns/servcraft?key=${ADMIN_KEY}`, {
+      const r = await fetch(`${WEBHOOK_URL}/campaigns/servcraft/count?key=${ADMIN_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          servcraft_api_key: SC_API_KEY,
-          message: message || 'preview',
-          search_phrase: searchPhrase,
-          max_send: 9999,
-          dry_run: true,
-        }),
+        body: JSON.stringify({ servcraft_api_key: SC_API_KEY, search_phrase: searchPhrase }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      // The count comes from ServCraft totalResults — we fetch page 0 to get it
-      const countResp = await fetch(
-        'https://previewapi.servcraft.co.za/api/v1/Customer/GetCustomers',
-        {
-          method: 'POST',
-          headers: { 'ApiKey': SC_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ searchPhrase, pageIndex: 0, pageSize: 1 }),
-        }
-      )
-      const cd = await countResp.json()
-      setCount(cd.totalResults ?? '?')
+      const cd = await r.json()
+      if (cd.error) throw new Error(cd.error)
+      setCount(cd.count)
     } catch (e) {
       setCount('Error — check config')
     } finally {
