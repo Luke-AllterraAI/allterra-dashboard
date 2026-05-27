@@ -154,7 +154,7 @@ export default function Tracker() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginTop: 20 }}>
-          {['overview', 'job cards', 'jobs', 'timeline', 'campaigns'].map(t => (
+          {['overview', 'job cards', 'jobs', 'timeline', 'campaigns', 'settings'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -319,6 +319,11 @@ export default function Tracker() {
               <CampaignTab tenant={tenant} />
             )}
 
+            {/* ── SETTINGS TAB ── */}
+            {tab === 'settings' && (
+              <SettingsTab tenant={tenant} />
+            )}
+
             {/* ── TIMELINE TAB ── */}
             {tab === 'timeline' && (
               <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 18 }}>
@@ -412,6 +417,195 @@ function FeedbackCard({ label, value, color, bg }) {
     <div style={{ background: bg, borderRadius: 5, padding: '12px 10px', textAlign: 'center' }}>
       <div style={{ fontSize: 26, fontWeight: 800, color }}>{value}</div>
       <div style={{ fontSize: 10, color: SOFT, marginTop: 3, lineHeight: 1.4 }}>{label}</div>
+    </div>
+  )
+}
+
+// ── Settings Tab ─────────────────────────────────────────────────────────────
+
+function SettingsTab({ tenant }) {
+  const [ownerNumber, setOwnerNumber] = useState('')
+  const [team, setTeam]               = useState([])   // [{name, phone}]
+  const [oncall, setOncall]           = useState([])   // [name]
+  const [newName, setNewName]         = useState('')
+  const [newPhone, setNewPhone]       = useState('')
+  const [loading, setLoading]         = useState(true)
+  const [saving, setSaving]           = useState(false)
+  const [saved, setSaved]             = useState(false)
+  const [error, setError]             = useState(null)
+
+  useEffect(() => {
+    if (!tenant) return
+    setLoading(true); setSaved(false); setError(null)
+    fetch(`${WEBHOOK_URL}/settings?tenant=${encodeURIComponent(tenant)}&key=${ADMIN_KEY}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) throw new Error(d.error)
+        setOwnerNumber(d.owner_whatsapp || '')
+        setTeam(d.team || [])
+        setOncall(d.oncall || [])
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [tenant])
+
+  const toggleOncall = (name) => {
+    setOncall(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name])
+  }
+
+  const addMember = () => {
+    if (!newName.trim() || !newPhone.trim()) return
+    const phone = newPhone.trim().replace(/\s+/g, '').replace(/^\+/, '')
+    setTeam(prev => [...prev, { name: newName.trim(), phone }])
+    setNewName(''); setNewPhone('')
+  }
+
+  const removeMember = (idx) => {
+    const removed = team[idx].name
+    setTeam(prev => prev.filter((_, i) => i !== idx))
+    setOncall(prev => prev.filter(n => n !== removed))
+  }
+
+  const save = async () => {
+    setSaving(true); setSaved(false); setError(null)
+    try {
+      const r = await fetch(
+        `${WEBHOOK_URL}/settings?tenant=${encodeURIComponent(tenant)}&key=${ADMIN_KEY}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall }),
+        }
+      )
+      const d = await r.json()
+      if (d.error) throw new Error(d.error)
+      setSaved(true)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: SOFT, fontSize: 13 }}>Loading settings…</div>
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+
+      {/* ── Left: notifications ── */}
+      <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 16 }}>
+          NOTIFICATION RECIPIENT
+        </div>
+        <div style={{ fontSize: 12, color: SOFT, marginBottom: 6 }}>
+          Owner WhatsApp — receives every call summary
+        </div>
+        <input
+          value={ownerNumber}
+          onChange={e => setOwnerNumber(e.target.value)}
+          placeholder="27837088951 (no + or spaces)"
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '9px 12px',
+            border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 13, fontFamily: 'inherit',
+          }}
+        />
+        <div style={{ fontSize: 11, color: SOFT, marginTop: 6 }}>Enter in international format without +, e.g. 27831234567</div>
+
+        {/* On-call roster */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 12 }}>
+            ON-CALL TEAM (receives job summaries)
+          </div>
+          {team.length === 0 ? (
+            <div style={{ fontSize: 12, color: SOFT }}>No team members yet — add them on the right.</div>
+          ) : team.map(m => (
+            <label key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0ede7', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={oncall.includes(m.name)}
+                onChange={() => toggleOncall(m.name)}
+                style={{ width: 16, height: 16, accentColor: GREEN }}
+              />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>{m.name}</div>
+                <div style={{ fontSize: 11, color: SOFT, fontFamily: 'monospace' }}>+{m.phone}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Right: team roster ── */}
+      <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 16 }}>
+          TEAM MEMBERS
+        </div>
+
+        {team.map((m, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0ede7' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
+              <div style={{ fontSize: 11, color: SOFT, fontFamily: 'monospace' }}>+{m.phone}</div>
+            </div>
+            <button
+              onClick={() => removeMember(i)}
+              style={{ padding: '4px 10px', fontSize: 11, border: '1px solid #f5b1ab', borderRadius: 4, background: '#fdf0f0', color: '#b03a2e', cursor: 'pointer' }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+
+        {/* Add member form */}
+        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+          <div>
+            <div style={{ fontSize: 11, color: SOFT, marginBottom: 4 }}>Name</div>
+            <input
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. Mike"
+              onKeyDown={e => e.key === 'Enter' && addMember()}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: SOFT, marginBottom: 4 }}>WhatsApp number</div>
+            <input
+              value={newPhone}
+              onChange={e => setNewPhone(e.target.value)}
+              placeholder="27831234567"
+              onKeyDown={e => e.key === 'Enter' && addMember()}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }}
+            />
+          </div>
+          <button
+            onClick={addMember}
+            disabled={!newName.trim() || !newPhone.trim()}
+            style={{
+              padding: '8px 14px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 5,
+              background: newName && newPhone ? GREEN : '#ccc', color: '#fff', cursor: newName && newPhone ? 'pointer' : 'default',
+            }}
+          >
+            Add
+          </button>
+        </div>
+
+        {/* Save */}
+        <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={save}
+            disabled={saving}
+            style={{
+              padding: '10px 24px', fontSize: 13, fontWeight: 700, border: 'none', borderRadius: 5,
+              background: INK, color: '#fff', cursor: 'pointer',
+            }}
+          >
+            {saving ? 'Saving…' : 'Save Settings'}
+          </button>
+          {saved && <span style={{ fontSize: 12, color: GREEN, fontWeight: 600 }}>✓ Saved</span>}
+          {error && <span style={{ fontSize: 12, color: '#b03a2e' }}>{error}</span>}
+        </div>
+      </div>
     </div>
   )
 }
