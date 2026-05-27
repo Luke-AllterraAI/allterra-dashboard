@@ -4,7 +4,7 @@ import {
   Phone, Wrench, MessageCircle, AlertTriangle,
   Star, Megaphone, Loader2, ChevronDown, Download, Share2,
 } from 'lucide-react'
-import { useTenants, useTrackerStats } from '../hooks/useTracker'
+import { useTenants, useTrackerStats, useCRMContacts } from '../hooks/useTracker'
 import JobCards from './JobCards'
 
 const INK = '#0f1a14'
@@ -13,8 +13,8 @@ const GOLD = '#c9813a'
 const SOFT = '#5a6360'
 const MONTHLY_COST = 8500
 
-// If VITE_TENANT is set this dashboard is locked to a single client (no dropdown)
-const LOCKED_TENANT = import.meta.env.VITE_TENANT || null
+// window.__TENANT__ is injected at runtime by FastAPI per client URL slug
+const LOCKED_TENANT = (typeof window !== 'undefined' && window.__TENANT__) || import.meta.env.VITE_TENANT || null
 
 const EVENT_META = {
   call_answered:             { icon: Phone,         color: GREEN,     label: 'After-hours call answered' },
@@ -161,7 +161,7 @@ export default function Tracker() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginTop: 20 }}>
-          {['overview', 'job cards', 'jobs', 'timeline', 'campaigns', 'settings'].map(t => (
+          {['overview', 'job cards', 'jobs', 'contacts', 'timeline', 'campaigns', 'settings'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -321,6 +321,11 @@ export default function Tracker() {
               </div>
             )}
 
+            {/* ── CONTACTS TAB ── */}
+            {tab === 'contacts' && (
+              <CRMTab tenant={tenant} />
+            )}
+
             {/* ── CAMPAIGNS TAB ── */}
             {tab === 'campaigns' && (
               <CampaignTab tenant={tenant} />
@@ -436,6 +441,8 @@ function SettingsTab({ tenant }) {
   const [oncall, setOncall]                 = useState([])
   const [newName, setNewName]               = useState('')
   const [newPhone, setNewPhone]             = useState('')
+  const [templates, setTemplates]           = useState([])
+  const [editingTpl, setEditingTpl]         = useState(null)
   const [loading, setLoading]               = useState(true)
   const [saving, setSaving]                 = useState(false)
   const [saved, setSaved]                   = useState(false)
@@ -451,6 +458,7 @@ function SettingsTab({ tenant }) {
         setOwnerNumber(d.owner_whatsapp || '')
         setTeam(d.team || [])
         setOncall(d.oncall || [])
+        setTemplates(d.templates || [])
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -481,7 +489,7 @@ function SettingsTab({ tenant }) {
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall }),
+          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall, templates }),
         }
       )
       const d = await r.json()
@@ -498,6 +506,7 @@ function SettingsTab({ tenant }) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+
 
       {/* ── Left: notifications ── */}
       <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
@@ -614,6 +623,136 @@ function SettingsTab({ tenant }) {
         </div>
       </div>
 
+      {/* ── Campaign Templates — full width ── */}
+      <div style={{ gridColumn: '1 / -1', background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN }}>CAMPAIGN TEMPLATES</div>
+          <button
+            onClick={() => { const i = templates.length; setTemplates(p => [...p, { label: '', text: '' }]); setEditingTpl(i) }}
+            style={{ fontSize: 12, padding: '5px 12px', border: `1px solid ${GREEN}`, borderRadius: 5, background: '#fff', color: GREEN, cursor: 'pointer', fontWeight: 600 }}
+          >+ Add Template</button>
+        </div>
+        {templates.length === 0 && <div style={{ fontSize: 12, color: SOFT }}>No templates yet — add one above.</div>}
+        {templates.map((t, i) => (
+          <div key={i} style={{ marginBottom: 10, border: '1px solid #e8e4dd', borderRadius: 5, padding: 12 }}>
+            {editingTpl === i ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  value={t.label}
+                  onChange={e => setTemplates(p => p.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
+                  placeholder="Template name"
+                  style={{ padding: '7px 10px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 13, fontFamily: 'inherit' }}
+                />
+                <textarea
+                  value={t.text}
+                  onChange={e => setTemplates(p => p.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
+                  rows={4}
+                  placeholder="Message text… use {name} to personalise"
+                  style={{ padding: '8px 10px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setEditingTpl(null)} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 5, background: GREEN, color: '#fff', cursor: 'pointer' }}>Done</button>
+                  <button onClick={() => { setTemplates(p => p.filter((_, j) => j !== i)); setEditingTpl(null) }} style={{ padding: '6px 14px', fontSize: 12, border: '1px solid #f5b1ab', borderRadius: 5, background: '#fdf0f0', color: '#b03a2e', cursor: 'pointer' }}>Delete</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: INK, marginBottom: 3 }}>{t.label || 'Untitled'}</div>
+                  <div style={{ fontSize: 12, color: SOFT, lineHeight: 1.4 }}>{t.text.slice(0, 100)}{t.text.length > 100 ? '…' : ''}</div>
+                </div>
+                <button onClick={() => setEditingTpl(i)} style={{ padding: '5px 12px', fontSize: 11, border: '1px solid #d8d3c8', borderRadius: 5, background: '#fff', cursor: 'pointer' }}>Edit</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── CRM / Contacts Tab ────────────────────────────────────────────────────────
+
+function CRMTab({ tenant }) {
+  const { data: contacts = [], isLoading } = useCRMContacts(tenant)
+  const [selected, setSelected] = useState(null)
+  const [search, setSearch]     = useState('')
+
+  useEffect(() => { if (!selected && contacts.length > 0) setSelected(contacts[0]) }, [contacts])
+
+  const filtered = contacts.filter(c =>
+    !search || (c.name || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search)
+  )
+
+  if (isLoading) return <div style={{ padding: 40, textAlign: 'center', color: SOFT, fontSize: 13 }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start' }}>
+      {/* Contact list */}
+      <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid #e8e4dd' }}>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search contacts…"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }}
+          />
+          <div style={{ fontSize: 11, color: SOFT, marginTop: 6 }}>{filtered.length} contact{filtered.length !== 1 ? 's' : ''}</div>
+        </div>
+        <div style={{ maxHeight: 540, overflowY: 'auto' }}>
+          {filtered.map(c => (
+            <button key={c.phone} onClick={() => setSelected(c)} style={{
+              display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
+              border: 'none', borderBottom: '1px solid #f0ede7', cursor: 'pointer',
+              background: selected?.phone === c.phone ? '#f4f1eb' : '#fff',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>{c.name}</div>
+              <div style={{ fontSize: 11, color: SOFT, fontFamily: 'monospace' }}>+{c.phone}</div>
+              <div style={{ fontSize: 11, color: SOFT, marginTop: 2 }}>
+                {c.jobs.length} job{c.jobs.length !== 1 ? 's' : ''} · {formatDistanceToNow(new Date(c.lastSeen), { addSuffix: true })}
+              </div>
+            </button>
+          ))}
+          {filtered.length === 0 && <div style={{ padding: 20, fontSize: 12, color: SOFT, textAlign: 'center' }}>No contacts yet</div>}
+        </div>
+      </div>
+
+      {/* Job history */}
+      {selected ? (
+        <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #e8e4dd' }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: INK }}>{selected.name}</div>
+              <div style={{ fontSize: 12, color: SOFT, fontFamily: 'monospace', marginTop: 2 }}>+{selected.phone}</div>
+            </div>
+            <div style={{ fontSize: 11, color: SOFT, textAlign: 'right' }}>
+              <div style={{ fontWeight: 600 }}>{selected.jobs.length} job{selected.jobs.length !== 1 ? 's' : ''}</div>
+              <div>Last: {formatDistanceToNow(new Date(selected.lastSeen), { addSuffix: true })}</div>
+            </div>
+          </div>
+          <div style={{ maxHeight: 520, overflowY: 'auto' }}>
+            {selected.jobs.map((job, i) => (
+              <div key={i} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: i < selected.jobs.length - 1 ? '1px solid #f0ede7' : 'none' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>{job.address || 'Address not captured'}</div>
+                  <div style={{ fontSize: 11, color: SOFT }}>{format(new Date(job.captured_at), 'dd MMM yyyy HH:mm')}</div>
+                </div>
+                {job.description && <div style={{ fontSize: 12, color: SOFT, lineHeight: 1.5 }}>{job.description}</div>}
+                {job.priority && job.priority !== 'normal' && (
+                  <span style={{
+                    display: 'inline-block', marginTop: 6, padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700,
+                    background: job.priority === 'emergency' ? '#fdf0f0' : '#fff9f0',
+                    color: job.priority === 'emergency' ? '#b03a2e' : GOLD,
+                  }}>{job.priority.toUpperCase()}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 40, textAlign: 'center', color: SOFT, fontSize: 13 }}>
+          Select a contact to view their job history
+        </div>
+      )}
     </div>
   )
 }
@@ -624,22 +763,13 @@ const WEBHOOK_URL  = import.meta.env.VITE_WEBHOOK_URL  || ''
 const ADMIN_KEY    = import.meta.env.VITE_ADMIN_KEY    || ''
 const SC_API_KEY   = 'ffa063f0-b386-400b-b0ba-4d52d7b8386a'
 
-const TEMPLATES = [
-  {
-    label: 'Winter geyser check',
-    text: "Hi {name}, it's Chapman Plumbing here. Winter is here and now is the perfect time for a quick geyser health check before the cold hits hard. Reply YES and we'll book you in for a free inspection. 🔧",
-  },
-  {
-    label: 'Maintenance reminder',
-    text: "Hi {name}, Chapman Plumbing here. Don't wait for a burst pipe — a quick annual plumbing check can save you thousands. Reply YES to book your maintenance visit at a time that suits you.",
-  },
-  {
-    label: 'Re-engagement',
-    text: "Hi {name}, it's been a while! Chapman Plumbing here. If you need any plumbing help — big or small — just reply and we'll sort you out quickly. We're always just a message away. 👋",
-  },
-]
-
 function CampaignTab({ tenant }) {
+  const [templates, setTemplates] = useState([])
+  useEffect(() => {
+    if (!tenant) return
+    fetch(`${WEBHOOK_URL}/settings?tenant=${encodeURIComponent(tenant)}&key=${ADMIN_KEY}`)
+      .then(r => r.json()).then(d => setTemplates(d.templates || [])).catch(() => {})
+  }, [tenant])
   const [message, setMessage]         = useState('')
   const [searchPhrase, setSearch]     = useState('')
   const [maxSend, setMaxSend]         = useState(50)
@@ -715,7 +845,7 @@ function CampaignTab({ tenant }) {
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: SOFT, marginBottom: 6 }}>Quick templates</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {TEMPLATES.map(t => (
+            {templates.map(t => (
               <button
                 key={t.label}
                 onClick={() => setMessage(t.text)}

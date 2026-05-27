@@ -26,6 +26,36 @@ export function useTenants() {
   })
 }
 
+/** All jobs for a tenant, grouped into contacts — no date limit. */
+export function useCRMContacts(tenant) {
+  return useQuery({
+    queryKey: ['crm-contacts', tenant],
+    enabled: !!tenant,
+    refetchInterval: REFRESH_INTERVAL,
+    queryFn: async () => {
+      const { data: jobs, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('tenant', tenant)
+        .order('captured_at', { ascending: false })
+        .limit(5000)
+      if (error) throw error
+      const map = {}
+      for (const job of jobs || []) {
+        const key = job.phone || '__unknown__'
+        if (!map[key]) map[key] = { name: job.client_name || 'Unknown', phone: job.phone || '', jobs: [], lastSeen: job.captured_at }
+        map[key].jobs.push(job)
+        if (job.captured_at > map[key].lastSeen) {
+          map[key].lastSeen = job.captured_at
+          if (job.client_name && job.client_name !== 'Unknown') map[key].name = job.client_name
+        }
+      }
+      return Object.values(map).sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen))
+    },
+    staleTime: 60_000,
+  })
+}
+
 /** All tracker stats for a given tenant over the last N days. */
 export function useTrackerStats(tenant, days = 30) {
   return useQuery({
