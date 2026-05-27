@@ -436,7 +436,6 @@ function SettingsTab({ tenant }) {
   const [oncall, setOncall]                 = useState([])
   const [newName, setNewName]               = useState('')
   const [newPhone, setNewPhone]             = useState('')
-  const [whatsappPrompt, setWhatsappPrompt] = useState('')
   const [loading, setLoading]               = useState(true)
   const [saving, setSaving]                 = useState(false)
   const [saved, setSaved]                   = useState(false)
@@ -452,7 +451,6 @@ function SettingsTab({ tenant }) {
         setOwnerNumber(d.owner_whatsapp || '')
         setTeam(d.team || [])
         setOncall(d.oncall || [])
-        setWhatsappPrompt(d.whatsapp_ai_prompt || '')
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -483,7 +481,7 @@ function SettingsTab({ tenant }) {
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall, whatsapp_ai_prompt: whatsappPrompt }),
+          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall }),
         }
       )
       const d = await r.json()
@@ -616,23 +614,6 @@ function SettingsTab({ tenant }) {
         </div>
       </div>
 
-      {/* ── Prompts — full width ── */}
-      <div style={{ gridColumn: '1 / -1', background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 16 }}>
-          AI PROMPTS
-        </div>
-        <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: INK, marginBottom: 6 }}>WhatsApp Bot Prompt</div>
-            <div style={{ fontSize: 11, color: SOFT, marginBottom: 8 }}>Controls how the AI replies to WhatsApp messages. Changes take effect immediately on save.</div>
-            <textarea
-              value={whatsappPrompt}
-              onChange={e => setWhatsappPrompt(e.target.value)}
-              rows={10}
-              style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5 }}
-              placeholder="You are Sam, a professional assistant for Chapman Plumbing…"
-            />
-          </div>
-      </div>
     </div>
   )
 }
