@@ -431,15 +431,18 @@ function FeedbackCard({ label, value, color, bg }) {
 // ── Settings Tab ─────────────────────────────────────────────────────────────
 
 function SettingsTab({ tenant }) {
-  const [ownerNumber, setOwnerNumber] = useState('')
-  const [team, setTeam]               = useState([])   // [{name, phone}]
-  const [oncall, setOncall]           = useState([])   // [name]
-  const [newName, setNewName]         = useState('')
-  const [newPhone, setNewPhone]       = useState('')
-  const [loading, setLoading]         = useState(true)
-  const [saving, setSaving]           = useState(false)
-  const [saved, setSaved]             = useState(false)
-  const [error, setError]             = useState(null)
+  const [ownerNumber, setOwnerNumber]       = useState('')
+  const [team, setTeam]                     = useState([])
+  const [oncall, setOncall]                 = useState([])
+  const [newName, setNewName]               = useState('')
+  const [newPhone, setNewPhone]             = useState('')
+  const [whatsappPrompt, setWhatsappPrompt] = useState('')
+  const [retellPrompt, setRetellPrompt]     = useState('')
+  const [hasRetellAgent, setHasRetellAgent] = useState(false)
+  const [loading, setLoading]               = useState(true)
+  const [saving, setSaving]                 = useState(false)
+  const [saved, setSaved]                   = useState(false)
+  const [error, setError]                   = useState(null)
 
   useEffect(() => {
     if (!tenant) return
@@ -451,6 +454,9 @@ function SettingsTab({ tenant }) {
         setOwnerNumber(d.owner_whatsapp || '')
         setTeam(d.team || [])
         setOncall(d.oncall || [])
+        setWhatsappPrompt(d.whatsapp_ai_prompt || '')
+        setRetellPrompt(d.retell_prompt || '')
+        setHasRetellAgent(!!d.has_retell_agent)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -481,7 +487,7 @@ function SettingsTab({ tenant }) {
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall }),
+          body: JSON.stringify({ owner_whatsapp: ownerNumber, team, oncall_default: oncall, whatsapp_ai_prompt: whatsappPrompt, retell_prompt: retellPrompt }),
         }
       )
       const d = await r.json()
@@ -611,6 +617,39 @@ function SettingsTab({ tenant }) {
           </button>
           {saved && <span style={{ fontSize: 12, color: GREEN, fontWeight: 600 }}>✓ Saved</span>}
           {error && <span style={{ fontSize: 12, color: '#b03a2e' }}>{error}</span>}
+        </div>
+      </div>
+
+      {/* ── Prompts — full width ── */}
+      <div style={{ gridColumn: '1 / -1', background: '#fff', border: '1px solid #d8d3c8', borderRadius: 6, padding: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: GREEN, marginBottom: 16 }}>
+          AI PROMPTS
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: hasRetellAgent ? '1fr 1fr' : '1fr', gap: 20 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: INK, marginBottom: 6 }}>WhatsApp Bot Prompt</div>
+            <div style={{ fontSize: 11, color: SOFT, marginBottom: 8 }}>Controls how the AI replies to WhatsApp messages. Changes take effect immediately on save.</div>
+            <textarea
+              value={whatsappPrompt}
+              onChange={e => setWhatsappPrompt(e.target.value)}
+              rows={10}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5 }}
+              placeholder="You are Sam, a professional assistant for Chapman Plumbing…"
+            />
+          </div>
+          {hasRetellAgent && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: INK, marginBottom: 6 }}>Voice Agent Prompt (Retell)</div>
+              <div style={{ fontSize: 11, color: SOFT, marginBottom: 8 }}>Controls the AI voice receptionist. Pushed live to Retell immediately on save.</div>
+              <textarea
+                value={retellPrompt}
+                onChange={e => setRetellPrompt(e.target.value)}
+                rows={10}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #d8d3c8', borderRadius: 5, fontSize: 12, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5 }}
+                placeholder="You are the voice receptionist for Chapman Plumbing…"
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
