@@ -13,6 +13,9 @@ const GOLD = '#c9813a'
 const SOFT = '#5a6360'
 const MONTHLY_COST = 8500
 
+// If VITE_TENANT is set this dashboard is locked to a single client (no dropdown)
+const LOCKED_TENANT = import.meta.env.VITE_TENANT || null
+
 const EVENT_META = {
   call_answered:             { icon: Phone,         color: GREEN,     label: 'After-hours call answered' },
   job_captured:              { icon: Wrench,        color: GREEN,     label: 'Job captured' },
@@ -43,10 +46,10 @@ export default function Tracker() {
   const { data: tenants = [], isLoading: tenantsLoading } = useTenants()
   const { data, isLoading, error } = useTrackerStats(tenant, days)
 
-  // Auto-select first tenant once loaded
-  if (!tenant && tenants.length > 0) {
-    setTenant(tenants[0])
-  }
+  // Locked-tenant mode: skip dropdown, force to configured tenant
+  if (LOCKED_TENANT && tenant !== LOCKED_TENANT) setTenant(LOCKED_TENANT)
+  // Auto-select first tenant once loaded (multi-tenant mode)
+  if (!LOCKED_TENANT && !tenant && tenants.length > 0) setTenant(tenants[0])
 
   const stats = data?.counts || {
     callsAnswered: 0, jobsCaptured: 0, emergencies: 0,
@@ -71,48 +74,52 @@ export default function Tracker() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#7edba8', marginBottom: 4 }}>
-              ALLTERRA AI · TRACKER
+              {LOCKED_TENANT ? 'POWERED BY ALLTERRA AI' : 'ALLTERRA AI · TRACKER'}
             </div>
 
-            {/* Tenant dropdown */}
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <button
-                onClick={() => setDropdownOpen(o => !o)}
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  fontSize: 22, fontWeight: 700, color: '#fff', padding: 0,
-                }}
-              >
-                {tenantsLoading ? 'Loading…' : (tenant || 'Select Client')}
-                <ChevronDown size={18} style={{ color: '#aecfbe' }} />
-              </button>
+            {/* Locked mode: show tenant name as plain heading; multi-tenant: show dropdown */}
+            {LOCKED_TENANT ? (
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{LOCKED_TENANT}</div>
+            ) : (
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  onClick={() => setDropdownOpen(o => !o)}
+                  style={{
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    fontSize: 22, fontWeight: 700, color: '#fff', padding: 0,
+                  }}
+                >
+                  {tenantsLoading ? 'Loading…' : (tenant || 'Select Client')}
+                  <ChevronDown size={18} style={{ color: '#aecfbe' }} />
+                </button>
 
-              {dropdownOpen && (
-                <div style={{
-                  position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 50,
-                  background: '#fff', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                  minWidth: 220, overflow: 'hidden',
-                }}>
-                  {tenants.length === 0 ? (
-                    <div style={{ padding: 14, fontSize: 12, color: SOFT }}>No data yet</div>
-                  ) : tenants.map(t => (
-                    <button
-                      key={t}
-                      onClick={() => { setTenant(t); setDropdownOpen(false) }}
-                      style={{
-                        display: 'block', width: '100%', textAlign: 'left',
-                        padding: '10px 14px', fontSize: 13, border: 'none',
-                        background: tenant === t ? '#f9f8f4' : '#fff',
-                        color: INK, cursor: 'pointer', fontWeight: tenant === t ? 700 : 500,
-                      }}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                {dropdownOpen && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 50,
+                    background: '#fff', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                    minWidth: 220, overflow: 'hidden',
+                  }}>
+                    {tenants.length === 0 ? (
+                      <div style={{ padding: 14, fontSize: 12, color: SOFT }}>No data yet</div>
+                    ) : tenants.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => { setTenant(t); setDropdownOpen(false) }}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '10px 14px', fontSize: 13, border: 'none',
+                          background: tenant === t ? '#f9f8f4' : '#fff',
+                          color: INK, cursor: 'pointer', fontWeight: tenant === t ? 700 : 500,
+                        }}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ fontSize: 12, color: '#aecfbe', marginTop: 4 }}>
               Last {days} days · {format(new Date(), 'MMMM yyyy')}

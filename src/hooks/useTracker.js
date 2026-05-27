@@ -3,18 +3,24 @@ import { supabase } from '../lib/supabase'
 
 const REFRESH_INTERVAL = 30_000  // refetch every 30s
 
-/** Distinct list of tenants (clients) that have any analytics events. */
+const WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
+const ADMIN_KEY   = import.meta.env.VITE_ADMIN_KEY   || ''
+
+/** Distinct list of tenants — merges webhook config + analytics so new clients appear immediately. */
 export function useTenants() {
   return useQuery({
     queryKey: ['tenants'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('analytics')
-        .select('tenant')
-        .limit(1000)
-      if (error) throw error
-      const set = new Set((data || []).map(r => r.tenant).filter(Boolean))
-      return Array.from(set).sort()
+      const names = new Set()
+      try {
+        const r = await fetch(`${WEBHOOK_URL}/tenants?key=${ADMIN_KEY}`)
+        if (r.ok) { const d = await r.json(); (d.tenants || []).forEach(t => names.add(t)) }
+      } catch (_) {}
+      try {
+        const { data } = await supabase.from('analytics').select('tenant').limit(1000)
+        ;(data || []).map(r => r.tenant).filter(Boolean).forEach(t => names.add(t))
+      } catch (_) {}
+      return Array.from(names).sort()
     },
     staleTime: 60_000,
   })
